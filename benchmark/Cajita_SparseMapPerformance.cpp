@@ -12,7 +12,6 @@
 
 #include "Cabana_BenchmarkUtils.hpp"
 
-#include <Cabana_Core.hpp>
 #include <Cajita_SparseIndexSpace.hpp>
 
 #include <Kokkos_Core.hpp>
@@ -37,17 +36,17 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
     constexpr int cell_bits_per_tile_dim = 2;
 
     // Declare the total number of particles to be inserted.
-    std::vector<int> num_particles = { 1000, 10000, 100000, 1000000 };
+    std::vector<int> num_particles = { 100, 1000, 10000, 1000000 };
     int num_particles_size = num_particles.size();
 
     // Declare the size (cell nums) of the domain
-    std::vector<int> num_cells_per_dim = { 32, 64, 128, 256, 512, 1024 };
+    std::vector<int> num_cells_per_dim = { 16, 32, 64, 128, 256, 512, 1024 };
     int num_cells_per_dim_size = num_cells_per_dim.size();
 
     // Generate a random set of particles in domain [0.0, 1.0]
-    Kokkos::View<float* [3], Device> poses(
-        Kokkos::ViewAllocateWithoutInitializing( "particle_poses" ),
-        num_particles.back() );
+    // Kokkos::View<float* [3], typename Device::memory_space> poses(
+    //     Kokkos::ViewAllocateWithoutInitializing( "particle_poses" ),
+    //     num_particles.back() );
     Kokkos::View<float* [3], Kokkos::HostSpace> host_poses(
         Kokkos::ViewAllocateWithoutInitializing( "host_particle_poses" ),
         num_particles.back() );
@@ -56,11 +55,14 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
     for ( int n = 0; n < num_particles.back(); ++n )
     {
         for ( int d = 0; d < 3; ++d )
+
             host_poses( n, d ) =
                 static_cast<float>( ( generator() - generator.min() ) ) /
                 generator_range;
     }
-    Kokkos::deep_copy( poses, host_poses );
+    // Kokkos::deep_copy( poses, host_poses );
+    auto poses = Kokkos::create_mirror_view_and_copy(
+        typename Device::memory_space(), host_poses );
 
     // Number of runs in the test loops.
     int num_run = 10;
@@ -210,6 +212,7 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
         outputResults( stream, "particle_num", num_particles, query_timer );
         outputResults( stream, "particle_num", num_particles,
                        valid_tile_ijk_timer );
+        stream << std::flush;
     }
 }
 
