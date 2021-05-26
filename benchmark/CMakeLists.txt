@@ -16,6 +16,10 @@ if(Kokkos_ENABLE_SERIAL OR Kokkos_ENABLE_CUDA OR Kokkos_ENABLE_OPENMP)
   add_executable(NeighborVerletPerformance Cabana_NeighborVerletPerformance.cpp)
   target_link_libraries(NeighborVerletPerformance cabanacore)
 
+  add_executable(SparseMapPerformance Cajita_SparseMapPerformance.cpp)
+  target_include_directories(SparseMapPerformance PUBLIC ../cajita/src/)
+  target_link_libraries(SparseMapPerformance cabanacore)
+
   if(Cabana_ENABLE_ARBORX)
     add_executable(NeighborArborXPerformance Cabana_NeighborArborXPerformance.cpp)
     target_link_libraries(NeighborArborXPerformance cabanacore)
