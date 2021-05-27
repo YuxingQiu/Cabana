@@ -31,6 +31,10 @@ if(Kokkos_ENABLE_SERIAL OR Kokkos_ENABLE_CUDA OR Kokkos_ENABLE_OPENMP)
   if(Cabana_ENABLE_MPI)
     add_executable(CommPerformance Cabana_CommPerformance.cpp)
     target_link_libraries(CommPerformance cabanacore)
+
+    add_executable(SparsePartitionerPerformance Cajita_SparsePartitionerPerformance.cpp)
+    target_include_directories(SparsePartitionerPerformance PUBLIC ../cajita/src/)
+    target_link_libraries(SparsePartitionerPerformance Cajita)
   endif()
 
 endif()
