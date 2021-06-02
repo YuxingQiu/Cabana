@@ -16,9 +16,11 @@
 
 #include <Kokkos_Core.hpp>
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <random>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -26,11 +28,101 @@
 #include <mpi.h>
 
 //---------------------------------------------------------------------------//
+// Helper functions.
+#define PARTICLE_WORKLOAD 0
+#define SPARSE_MAP_WOPRKLOAD 1
+
+std::set<std::array<int, 3>> generateRandomTiles( int tiles_per_dim,
+                                                  int tile_num )
+{
+    std::set<std::array<int, 3>> tiles_set;
+    while ( static_cast<int>( tiles_set.size() ) < tile_num )
+    {
+        int rand_tile[3];
+        for ( int d = 0; d < 3; ++d )
+            rand_tile[d] = std::rand() % tiles_per_dim;
+        tiles_set.insert( rand_tile );
+    }
+    return tiles_set;
+}
+
+int current = 0;
+int uniqueNumber() { return current++; }
+
+std::set<std::array<int, 3>> generateRandomTileSequence( int tiles_per_dim )
+{
+    std::set<std::array<int, 3>> tiles_set;
+    std::vector<int> random_seq( num_tiles_per_dim );
+
+    std::generate_n( random_seq.data(), tiles_per_dim, uniqueNumber );
+    for ( int d = 0; d < 3; ++d )
+    {
+        std::random_shuffle( random_seq.begin(), random_seq.end() );
+        for ( int n = 0; n < tiles_per_dim; ++n )
+        {
+            // pass
+        }
+    }
+
+    while ( static_cast<int>( tiles_set.size() ) < tile_num )
+    {
+        int rand_tile[3];
+        for ( int d = 0; d < 3; ++d )
+            rand_tile[d] = std::rand() % tiles_per_dim;
+        tiles_set.insert( rand_tile );
+    }
+    return tiles_set;
+}
+
+//---------------------------------------------------------------------------//
 // Performance test.
-template <class Device>
+template <class Device, unsigned WLType,
+          typename std::enable_if_t<WLType == PARTICLE_WORKLOAD> *= nullptr>
 void performanceTest( std::ostream& stream, const std::string& test_prefix )
 {
     // pass
+}
+
+template <class Device, unsigned WLType,
+          typename std::enable_if_t<WLType == SPARSE_MAP_WOPRKLOAD> *= nullptr>
+void performanceTest( std::ostream& stream, const std::string& test_prefix )
+{
+    // Domain size setup
+    std::array<float, 3> global_low_corner = { 0.0, 0.0, 0.0 };
+    std::array<float, 3> global_high_corner = { 1.0, 1.0, 1.0 };
+    constexpr int cell_num_per_tile_dim = 4;
+    constexpr int cell_bits_per_tile_dim = 2;
+
+    // Declare the fraction of occupied tiles in the whole domain
+    std::vector<double> occupy_fraction = { 0.001, 0.005, 0.01, 0.05, 0.1,
+                                            0.25,  0.5,   0.75, 1.0 };
+    int occupy_fraction_size = occupy_fraction.size();
+
+    // Declare the size (cell nums) of the domain
+    std::vector<int> num_cells_per_dim = { 16, 32, 64, 128, 256, 512, 1024 };
+    int num_cells_per_dim_size = num_cells_per_dim.size();
+
+    // Number of runs in the test loops.
+    int num_run = 10;
+
+    for ( int c = 0; c < num_cells_per_dim_size; ++c )
+    {
+        // init the sparse grid domain
+        std::array<int, 3> global_num_cell = {
+            num_cells_per_dim[c], num_cells_per_dim[c], num_cells_per_dim[c] };
+        auto global_mesh = createSparseGlobalMesh(
+            global_low_corner, global_high_corner, global_num_cell );
+        float cell_size = 1.0 / num_cells_per_dim[c];
+        int num_tiles_per_dim = num_cells_per_dim[c] >> cell_bits_per_tile_dim;
+
+        // create sparse map
+        int pre_alloc_size = num_cells_per_dim[c] * num_cells_per_dim[c];
+        auto sis = createSparseMap<typename Device::execution_space>(
+            global_mesh, pre_alloc_size );
+
+        // Generate a random set of occupied tiles
+        auto tiles_set = generateRandomTileSequence( num_cells_per_dim[c] );
+    }
 }
 
 //---------------------------------------------------------------------------//
@@ -94,18 +186,23 @@ int main( int argc, char* argv[] )
     // Run the tests.
 #ifdef KOKKOS_ENABLE_SERIAL
     using SerialDevice = Kokkos::Device<Kokkos::Serial, Kokkos::HostSpace>;
-    performanceTest<SerialDevice>( file, "serial_" );
+    performanceTest<SerialDevice, PARTICLE_WORKLOAD>( file, "serial_parWL_" );
+    performanceTest<SerialDevice, SPARSE_MAP_WOPRKLOAD>( file,
+                                                         "serial_smapWL_" );
 #endif
 
 #ifdef KOKKOS_ENABLE_OPENMP
     using OpenMPDevice = Kokkos::Device<Kokkos::OpenMP, Kokkos::HostSpace>;
-    performanceTest<OpenMPDevice>( file, "openmp_" );
+    performanceTest<OpenMPDevice, PARTICLE_WORKLOAD>( file, "openmp_parWL_" );
+    performanceTest<OpenMPDevice, SPARSE_MAP_WOPRKLOAD>( file,
+                                                         "openmp_smapWL_" );
 #endif
 
 #ifdef KOKKOS_ENABLE_CUDA
     using CudaDevice = Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>;
     // using CudaUVMDevice = Kokkos::Device<Kokkos::Cuda, Kokkos::CudaUVMSpace>;
-    performanceTest<CudaDevice>( file, "cuda_" );
+    performanceTest<CudaDevice, PARTICLE_WORKLOAD>( file, "cuda_parWL_" );
+    performanceTest<CudaDevice, SPARSE_MAP_WOPRKLOAD>( file, "cuda_smapWL_" );
     // performanceTest<CudaDevice>( file, "cudauvm_" );
 #endif
 
