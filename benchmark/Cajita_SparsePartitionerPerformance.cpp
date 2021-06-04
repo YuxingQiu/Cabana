@@ -29,8 +29,12 @@
 
 //---------------------------------------------------------------------------//
 // Helper functions.
-#define PARTICLE_WORKLOAD 0
-#define SPARSE_MAP_WOPRKLOAD 1
+struct Particle_Workload_Tag
+{
+};
+struct Sparse_Map_Tag
+{
+};
 
 std::set<std::array<int, 3>> generateRandomTiles( int tiles_per_dim,
                                                   int tile_num )
@@ -38,7 +42,7 @@ std::set<std::array<int, 3>> generateRandomTiles( int tiles_per_dim,
     std::set<std::array<int, 3>> tiles_set;
     while ( static_cast<int>( tiles_set.size() ) < tile_num )
     {
-        int rand_tile[3];
+        std::array<int, 3> rand_tile;
         for ( int d = 0; d < 3; ++d )
             rand_tile[d] = std::rand() % tiles_per_dim;
         tiles_set.insert( rand_tile );
@@ -46,47 +50,62 @@ std::set<std::array<int, 3>> generateRandomTiles( int tiles_per_dim,
     return tiles_set;
 }
 
+// generate a random tile sequence
 int current = 0;
 int uniqueNumber() { return current++; }
 
-std::set<std::array<int, 3>> generateRandomTileSequence( int tiles_per_dim )
-{
-    std::set<std::array<int, 3>> tiles_set;
-    std::vector<int> random_seq( num_tiles_per_dim );
+Kokkos::View<int* [3], Kokkos::HostSpace>
+generateRandomTileSequence( int tiles_per_dim ) {
+    Kokkos::View<int* [3], Kokkos::HostSpace> tiles_host(
+        "random_tile_sequence_host",
+        tiles_per_dim * tiles_per_dim * tiles_per_dim );
 
+    std::vector<int> random_seq( tiles_per_dim );
     std::generate_n( random_seq.data(), tiles_per_dim, uniqueNumber );
     for ( int d = 0; d < 3; ++d )
     {
         std::random_shuffle( random_seq.begin(), random_seq.end() );
         for ( int n = 0; n < tiles_per_dim; ++n )
-        {
-            // pass
-        }
+            tiles_host( n, d ) = random_seq[n];
     }
+    return tiles_host;
+}
 
-    while ( static_cast<int>( tiles_set.size() ) < tile_num )
+// generate average partitioner
+std::array<std::vector<int>, 3> compute_average_partition(
+    const int tile_per_dim, const std::array<int, 3>& ranks_per_dim )
+{
+    std::array<std::vector<int>, 3> rec_partitions;
+    for ( int d = 0; d < 3; ++d )
     {
-        int rand_tile[3];
-        for ( int d = 0; d < 3; ++d )
-            rand_tile[d] = std::rand() % tiles_per_dim;
-        tiles_set.insert( rand_tile );
+        int ele = tile_per_dim / ranks_per_dim[d];
+        int part = 0;
+        for ( int i = 0; i < ranks_per_dim[d]; ++i )
+        {
+            rec_partitions[d].push_back( part );
+            part += ele;
+        }
+        rec_partitions[d].push_back( tile_per_dim );
     }
-    return tiles_set;
+    return rec_partitions;
 }
 
 //---------------------------------------------------------------------------//
 // Performance test.
-template <class Device, unsigned WLType,
-          typename std::enable_if_t<WLType == PARTICLE_WORKLOAD> *= nullptr>
-void performanceTest( std::ostream& stream, const std::string& test_prefix )
+template <class Device>
+void performanceTest( Particle_Workload_Tag, std::ostream& stream,
+                      const std::string& test_prefix )
 {
     // pass
 }
 
-template <class Device, unsigned WLType,
-          typename std::enable_if_t<WLType == SPARSE_MAP_WOPRKLOAD> *= nullptr>
-void performanceTest( std::ostream& stream, const std::string& test_prefix )
+template <class Device>
+void performanceTest( Sparse_Map_Tag, std::ostream& stream,
+                      const std::string& test_prefix )
 {
+    // Get comm world.
+    auto comm = MPI_COMM_WORLD;
+
     // Domain size setup
     std::array<float, 3> global_low_corner = { 0.0, 0.0, 0.0 };
     std::array<float, 3> global_high_corner = { 1.0, 1.0, 1.0 };
@@ -99,29 +118,137 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
     int occupy_fraction_size = occupy_fraction.size();
 
     // Declare the size (cell nums) of the domain
-    std::vector<int> num_cells_per_dim = { 16, 32, 64, 128, 256, 512, 1024 };
+    std::vector<int> num_cells_per_dim = { 16,  32,  64,   128,
+                                           256, 512, 1024, 2048 };
     int num_cells_per_dim_size = num_cells_per_dim.size();
 
     // Number of runs in the test loops.
     int num_run = 10;
+
+    // Basic settings for partitioenr
+    float max_workload_coeff = 1.5;
+    int max_optimize_iteration = 10;
+    int num_step_rebalance = 100;
 
     for ( int c = 0; c < num_cells_per_dim_size; ++c )
     {
         // init the sparse grid domain
         std::array<int, 3> global_num_cell = {
             num_cells_per_dim[c], num_cells_per_dim[c], num_cells_per_dim[c] };
-        auto global_mesh = createSparseGlobalMesh(
+        auto global_mesh = Cajita::createSparseGlobalMesh(
             global_low_corner, global_high_corner, global_num_cell );
         float cell_size = 1.0 / num_cells_per_dim[c];
         int num_tiles_per_dim = num_cells_per_dim[c] >> cell_bits_per_tile_dim;
 
         // create sparse map
         int pre_alloc_size = num_cells_per_dim[c] * num_cells_per_dim[c];
-        auto sis = createSparseMap<typename Device::execution_space>(
+        auto sis = Cajita::createSparseMap<typename Device::execution_space>(
             global_mesh, pre_alloc_size );
 
         // Generate a random set of occupied tiles
-        auto tiles_set = generateRandomTileSequence( num_cells_per_dim[c] );
+        auto tiles_host = generateRandomTileSequence( num_tiles_per_dim );
+        auto tiles_view = Kokkos::create_mirror_view_and_copy(
+            typename Device::memory_space(), tiles_host );
+
+        // set up partitioner
+        auto total_num =
+            num_tiles_per_dim * num_tiles_per_dim * num_tiles_per_dim;
+        Cajita::SparseDimPartitioner<Device, cell_num_per_tile_dim> partitioner(
+            comm, max_workload_coeff, total_num, num_step_rebalance,
+            global_num_cell, max_optimize_iteration );
+        auto ranks_per_dim =
+            partitioner.ranksPerDimension( comm, global_num_cell );
+        auto ave_partition =
+            compute_average_partition( num_tiles_per_dim, ranks_per_dim );
+
+        // Create insertion timers
+        std::stringstream local_workload_name;
+        local_workload_name << test_prefix << "compute_local_workload_"
+                            << "domain_size(cell)_" << num_cells_per_dim[c];
+        Cabana::Benchmark::Timer local_workload_timer(
+            local_workload_name.str(), occupy_fraction_size );
+
+        std::stringstream prefix_sum_name;
+        prefix_sum_name << test_prefix << "compute_prefix_sum_"
+                        << "domain_size(cell)_" << num_cells_per_dim[c];
+        Cabana::Benchmark::Timer prefix_sum_timer( prefix_sum_name.str(),
+                                                   occupy_fraction_size );
+
+        std::stringstream total_optimize_name;
+        total_optimize_name << test_prefix << "total_optimize_"
+                            << "domain_size(cell)_" << num_cells_per_dim[c];
+        Cabana::Benchmark::Timer total_optimize_timer(
+            total_optimize_name.str(), occupy_fraction_size );
+
+        std::stringstream single_optimize_name;
+        single_optimize_name << test_prefix << "single_step_optimize_"
+                             << "domain_size(cell)_" << num_cells_per_dim[c];
+        Cabana::Benchmark::Timer single_optimize_timer(
+            single_optimize_name.str(), occupy_fraction_size );
+
+        // loop over all the occupy_fractions
+        for ( int frac = 0; frac < occupy_fraction_size; ++frac )
+        {
+            // compute the number of distinct tiles that will be inserted to the
+            // sparse map
+            int num_insert =
+                static_cast<int>( occupy_fraction[frac] * num_tiles_per_dim *
+                                  num_tiles_per_dim * num_tiles_per_dim );
+
+            // register selected tiles to the sparseMap
+            Kokkos::parallel_for(
+                "insert_tile_to_sparse_map",
+                Kokkos::RangePolicy<typename Device::execution_space>(
+                    0, num_insert ),
+                KOKKOS_LAMBDA( const int id ) {
+                    sis.insertTile( tiles_view( id, 0 ), tiles_view( id, 1 ),
+                                    tiles_view( id, 2 ) );
+                } );
+
+            for ( int t = 0; t < num_run; ++t )
+            {
+                // ensure every optimization process starts from the same status
+                partitioner.initializeRecPartition(
+                    ave_partition[0], ave_partition[1], ave_partition[2] );
+
+                // compute local workload
+                local_workload_timer.start( frac );
+                partitioner.computeLocalWorkLoad( sis );
+                local_workload_timer.stop( frac );
+
+                // compute prefix sum matrix
+                prefix_sum_timer.start( frac );
+                partitioner.computeFullPrefixSum( comm );
+                prefix_sum_timer.stop( frac );
+
+                // optimization
+                bool is_changed = false;
+                // full timer
+                total_optimize_timer.start( frac );
+                for ( int i = 0; i < max_optimize_iteration; ++i )
+                {
+                    // timer for a single optimizing step
+                    single_optimize_timer.start( frac );
+                    partitioner.optimizePartition( is_changed,
+                                                   std::rand() % 3 );
+                    single_optimize_timer.stop( frac );
+                    if ( !is_changed )
+                        break;
+                }
+                total_optimize_timer.stop( frac );
+            }
+        }
+
+        // Output results
+        outputResults( stream, "insert_tile_num", occupy_fraction,
+                       local_workload_timer, comm );
+        outputResults( stream, "insert_tile_num", occupy_fraction,
+                       prefix_sum_timer, comm );
+        outputResults( stream, "insert_tile_num", occupy_fraction,
+                       single_optimize_timer, comm );
+        outputResults( stream, "insert_tile_num", occupy_fraction,
+                       total_optimize_timer, comm );
+        stream << std::flush;
     }
 }
 
@@ -186,23 +313,23 @@ int main( int argc, char* argv[] )
     // Run the tests.
 #ifdef KOKKOS_ENABLE_SERIAL
     using SerialDevice = Kokkos::Device<Kokkos::Serial, Kokkos::HostSpace>;
-    performanceTest<SerialDevice, PARTICLE_WORKLOAD>( file, "serial_parWL_" );
-    performanceTest<SerialDevice, SPARSE_MAP_WOPRKLOAD>( file,
-                                                         "serial_smapWL_" );
+    performanceTest<SerialDevice>( Particle_Workload_Tag(), file,
+                                   "serial_parWL_" );
+    performanceTest<SerialDevice>( Sparse_Map_Tag(), file, "serial_smapWL_" );
 #endif
 
 #ifdef KOKKOS_ENABLE_OPENMP
     using OpenMPDevice = Kokkos::Device<Kokkos::OpenMP, Kokkos::HostSpace>;
-    performanceTest<OpenMPDevice, PARTICLE_WORKLOAD>( file, "openmp_parWL_" );
-    performanceTest<OpenMPDevice, SPARSE_MAP_WOPRKLOAD>( file,
-                                                         "openmp_smapWL_" );
+    performanceTest<OpenMPDevice>( Particle_Workload_Tag(), file,
+                                   "openmp_parWL_" );
+    performanceTest<OpenMPDevice>( Sparse_Map_Tag(), file, "openmp_smapWL_" );
 #endif
 
 #ifdef KOKKOS_ENABLE_CUDA
     using CudaDevice = Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>;
     // using CudaUVMDevice = Kokkos::Device<Kokkos::Cuda, Kokkos::CudaUVMSpace>;
-    performanceTest<CudaDevice, PARTICLE_WORKLOAD>( file, "cuda_parWL_" );
-    performanceTest<CudaDevice, SPARSE_MAP_WOPRKLOAD>( file, "cuda_smapWL_" );
+    performanceTest<CudaDevice>( Particle_Workload_Tag(), file, "cuda_parWL_" );
+    performanceTest<CudaDevice>( Sparse_Map_Tag(), file, "cuda_smapWL_" );
     // performanceTest<CudaDevice>( file, "cudauvm_" );
 #endif
 
