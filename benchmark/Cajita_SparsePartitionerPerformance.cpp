@@ -482,12 +482,10 @@ int main( int argc, char* argv[] )
 
 #ifdef KOKKOS_ENABLE_CUDA
     using CudaDevice = Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>;
-    // using CudaUVMDevice = Kokkos::Device<Kokkos::Cuda, Kokkos::CudaUVMSpace>;
     performanceTest<CudaDevice>( Particle_Workload_Tag(), file, MPI_COMM_WORLD,
                                  "cuda_parWL_" );
     performanceTest<CudaDevice>( Sparse_Map_Tag(), file, MPI_COMM_WORLD,
                                  "cuda_smapWL_" );
-    // performanceTest<CudaDevice>( file, "cudauvm_" );
 #endif
 
     // Close the output file on rank 0.

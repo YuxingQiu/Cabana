@@ -1,4 +1,3 @@
-
 /****************************************************************************
  * Copyright (c) 2018-2021 by the Cabana authors                            *
  * All rights reserved.                                                     *
@@ -23,7 +22,6 @@
 #include <string>
 #include <vector>
 
-using namespace Cajita;
 //---------------------------------------------------------------------------//
 // Performance test.
 template <class Device>
@@ -44,9 +42,6 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
     int num_cells_per_dim_size = num_cells_per_dim.size();
 
     // Generate a random set of particles in domain [0.0, 1.0]
-    // Kokkos::View<float* [3], typename Device::memory_space> poses(
-    //     Kokkos::ViewAllocateWithoutInitializing( "particle_poses" ),
-    //     num_particles.back() );
     Kokkos::View<float* [3], Kokkos::HostSpace> host_poses(
         Kokkos::ViewAllocateWithoutInitializing( "host_particle_poses" ),
         num_particles.back() );
@@ -60,7 +55,6 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
                 static_cast<float>( ( generator() - generator.min() ) ) /
                 generator_range;
     }
-    // Kokkos::deep_copy( poses, host_poses );
     auto poses = Kokkos::create_mirror_view_and_copy(
         typename Device::memory_space(), host_poses );
 
@@ -82,14 +76,14 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
     {
         std::array<int, 3> global_num_cell = {
             num_cells_per_dim[c], num_cells_per_dim[c], num_cells_per_dim[c] };
-        auto global_mesh = createSparseGlobalMesh(
+        auto global_mesh = Cajita::createSparseGlobalMesh(
             global_low_corner, global_high_corner, global_num_cell );
         float cell_size = 1.0 / num_cells_per_dim[c];
         int num_tiles_per_dim = num_cells_per_dim[c] >> cell_bits_per_tile_dim;
 
         // create sparse map
         int pre_alloc_size = num_cells_per_dim[c] * num_cells_per_dim[c];
-        auto sis = createSparseMap<typename Device::execution_space>(
+        auto sis = Cajita::createSparseMap<typename Device::execution_space>(
             global_mesh, pre_alloc_size );
 
         // Create insertion timers
@@ -179,87 +173,69 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
                     Kokkos::RangePolicy<typename Device::execution_space>(
                         0, sis.capacity() ),
                     KOKKOS_LAMBDA( const int index ) {
-                        if ( sis.valid_at( index ) )
-                        {
-                            auto tileKey = sis.key_at( index );
-                            auto tileId = sis.value_at( index );
-                            int qti, qtj, qtk;
-                            sis.key2ijk( tileKey, qti, qtj, qtk );
-                            if ( !is_tile_valid( qti, qtj, qtk ) )
-                            {
-                                printf( "error occured [Not valid]: (ti, tj, "
-                                        "tk) = (%d, %d, "
-                                        "%d)",
-                                        qti, qtj, qtk );
-                            }
-                            else if ( tileId != tile_ids( qti, qtj, qtk ) )
-                            {
-                                printf(
-                                    "error occured: (ti, tj, tk) = (%d, %d, "
-                                    "%d), tileKey = %lu, tileId = %lu, queried "
-                                    "ID = %lu\n",
-                                    qti, qtj, qtk, tileKey, tileId,
-                                    tile_ids( qti, qtj, qtk ) );
-                            }
-                        }
+                    if ( sis.valid_at( index ) )
+                    {
+                        auto tileKey = sis.key_at( index );
+                        auto tileId = sis.value_at( index );
+                        int qti, qtj, qtk;
+                        sis.key2ijk( tileKey, qti, qtj, qtk );
                     } );
-                valid_tile_ijk_timer.stop( p );
+                    valid_tile_ijk_timer.stop( p );
             }
+            }
+
+            // Output results
+            outputResults( stream, "particle_num", num_particles,
+                           insert_timer );
+            outputResults( stream, "particle_num", num_particles, query_timer );
+            outputResults( stream, "particle_num", num_particles,
+                           valid_tile_ijk_timer );
+            stream << std::flush;
         }
-
-        // Output results
-        outputResults( stream, "particle_num", num_particles, insert_timer );
-        outputResults( stream, "particle_num", num_particles, query_timer );
-        outputResults( stream, "particle_num", num_particles,
-                       valid_tile_ijk_timer );
-        stream << std::flush;
     }
-}
 
-//---------------------------------------------------------------------------//
-// main
-int main( int argc, char* argv[] )
-{
-    // Initialize environment
-    Kokkos::initialize( argc, argv );
+    //---------------------------------------------------------------------------//
+    // main
+    int main( int argc, char* argv[] )
+    {
+        // Initialize environment
+        Kokkos::initialize( argc, argv );
 
-    // Check arguments.
-    if ( argc < 2 )
-        throw std::runtime_error( "Incorrect number of arguments. \n \
+        // Check arguments.
+        if ( argc < 2 )
+            throw std::runtime_error( "Incorrect number of arguments. \n \
              First argument - file name for output \n \
              \n \
              Example: \n \
              $/: ./SparseMapPerformance test_results.txt\n" );
 
-    // Get the name of the output file.
-    std::string filename = argv[1];
+        // Get the name of the output file.
+        std::string filename = argv[1];
 
-    // Open the output file on rank 0.
-    std::fstream file;
-    file.open( filename, std::fstream::out );
+        // Open the output file on rank 0.
+        std::fstream file;
+        file.open( filename, std::fstream::out );
 
-    // Run the tests.
+        // Run the tests.
 #ifdef KOKKOS_ENABLE_SERIAL
-    using SerialDevice = Kokkos::Device<Kokkos::Serial, Kokkos::HostSpace>;
-    performanceTest<SerialDevice>( file, "serial_" );
+        using SerialDevice = Kokkos::Device<Kokkos::Serial, Kokkos::HostSpace>;
+        performanceTest<SerialDevice>( file, "serial_" );
 #endif
 
 #ifdef KOKKOS_ENABLE_OPENMP
-    using OpenMPDevice = Kokkos::Device<Kokkos::OpenMP, Kokkos::HostSpace>;
-    performanceTest<OpenMPDevice>( file, "openmp_" );
+        using OpenMPDevice = Kokkos::Device<Kokkos::OpenMP, Kokkos::HostSpace>;
+        performanceTest<OpenMPDevice>( file, "openmp_" );
 #endif
 
 #ifdef KOKKOS_ENABLE_CUDA
-    using CudaDevice = Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>;
-    // using CudaUVMDevice = Kokkos::Device<Kokkos::Cuda, Kokkos::CudaUVMSpace>;
-    performanceTest<CudaDevice>( file, "cuda_" );
-    // performanceTest<CudaDevice>( file, "cudauvm_" );
+        using CudaDevice = Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>;
+        performanceTest<CudaDevice>( file, "cuda_" );
 #endif
 
-    // Close the output file on rank 0.
-    file.close();
+        // Close the output file on rank 0.
+        file.close();
 
-    // Finalize
-    Kokkos::finalize();
-    return 0;
-}
+        // Finalize
+        Kokkos::finalize();
+        return 0;
+    }
