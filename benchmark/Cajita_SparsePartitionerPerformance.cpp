@@ -71,25 +71,6 @@ generateRandomTileSequence( int tiles_per_dim ) {
     return tiles_host;
 }
 
-template <typename DataType>
-Kokkos::View<DataType* [3], Kokkos::HostSpace> generateRandomParticles(
-    int particle_num ) {
-    Kokkos::View<float* [3], Kokkos::HostSpace> poses_host(
-        Kokkos::ViewAllocateWithoutInitializing( "host_particle_poses" ),
-        particle_num );
-    std::minstd_rand0 generator( 3439203991 );
-    float generator_range = generator.max() - generator.min();
-    for ( int n = 0; n < particle_num; ++n )
-    {
-        for ( int d = 0; d < 3; ++d )
-
-            poses_host( n, d ) =
-                static_cast<float>( ( generator() - generator.min() ) ) /
-                generator_range;
-    }
-    return poses_host;
-}
-
 // generate average partitioner
 std::array<std::vector<int>, 3> compute_average_partition(
     const int tile_per_dim, const std::array<int, 3>& ranks_per_dim )
@@ -125,7 +106,7 @@ void performanceTest( Particle_Workload_Tag, std::ostream& stream,
 
     // Domain size setup
     std::array<float, 3> global_low_corner = { 0.0, 0.0, 0.0 };
-    // std::array<float, 3> global_high_corner = { 1.0, 1.0, 1.0 };
+    std::array<float, 3> global_high_corner = { 1.0, 1.0, 1.0 };
     constexpr int cell_num_per_tile_dim = 4;
     constexpr int cell_bits_per_tile_dim = 2;
 
@@ -151,7 +132,8 @@ void performanceTest( Particle_Workload_Tag, std::ostream& stream,
                       ( num_particles.back() % comm_size < comm_rank ? 1 : 0 );
 
     // Generate a random set of particles
-    auto poses_host = generateRandomParticles<float>( max_par_num );
+    auto poses_host = Cabana::Benchmark::generateRandomParticlesView<float>(
+        max_par_num, global_low_corner, global_high_corner );
     auto poses = Kokkos::create_mirror_view_and_copy(
         typename Device::memory_space(), poses_host );
 

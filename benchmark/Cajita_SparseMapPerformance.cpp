@@ -42,21 +42,10 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
     int num_cells_per_dim_size = num_cells_per_dim.size();
 
     // Generate a random set of particles in domain [0.0, 1.0]
-    Kokkos::View<float* [3], Kokkos::HostSpace> host_poses(
-        Kokkos::ViewAllocateWithoutInitializing( "host_particle_poses" ),
-        num_particles.back() );
-    std::minstd_rand0 generator( 3439203991 );
-    float generator_range = generator.max() - generator.min();
-    for ( int n = 0; n < num_particles.back(); ++n )
-    {
-        for ( int d = 0; d < 3; ++d )
-
-            host_poses( n, d ) =
-                static_cast<float>( ( generator() - generator.min() ) ) /
-                generator_range;
-    }
+    auto poses_host = Cabana::Benchmark::generateRandomParticlesView<float>(
+        num_particles.back(), global_low_corner, global_high_corner );
     auto poses = Kokkos::create_mirror_view_and_copy(
-        typename Device::memory_space(), host_poses );
+        typename Device::memory_space(), poses_host );
 
     // Number of runs in the test loops.
     int num_run = 10;
@@ -173,69 +162,69 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
                     Kokkos::RangePolicy<typename Device::execution_space>(
                         0, sis.capacity() ),
                     KOKKOS_LAMBDA( const int index ) {
-                    if ( sis.valid_at( index ) )
-                    {
-                        auto tileKey = sis.key_at( index );
-                        auto tileId = sis.value_at( index );
-                        int qti, qtj, qtk;
-                        sis.key2ijk( tileKey, qti, qtj, qtk );
+                        if ( sis.valid_at( index ) )
+                        {
+                            auto tileKey = sis.key_at( index );
+                            auto tileId = sis.value_at( index );
+                            int qti, qtj, qtk;
+                            sis.key2ijk( tileKey, qti, qtj, qtk );
+                        }
                     } );
-                    valid_tile_ijk_timer.stop( p );
+                valid_tile_ijk_timer.stop( p );
             }
-            }
-
-            // Output results
-            outputResults( stream, "particle_num", num_particles,
-                           insert_timer );
-            outputResults( stream, "particle_num", num_particles, query_timer );
-            outputResults( stream, "particle_num", num_particles,
-                           valid_tile_ijk_timer );
-            stream << std::flush;
         }
+
+        // Output results
+        outputResults( stream, "particle_num", num_particles, insert_timer );
+        outputResults( stream, "particle_num", num_particles, query_timer );
+        outputResults( stream, "particle_num", num_particles,
+                       valid_tile_ijk_timer );
+        stream << std::flush;
     }
+}
 
-    //---------------------------------------------------------------------------//
-    // main
-    int main( int argc, char* argv[] )
-    {
-        // Initialize environment
-        Kokkos::initialize( argc, argv );
+//---------------------------------------------------------------------------//
+// main
+int main( int argc, char* argv[] )
+{
+    // Initialize environment
+    Kokkos::initialize( argc, argv );
 
-        // Check arguments.
-        if ( argc < 2 )
-            throw std::runtime_error( "Incorrect number of arguments. \n \
+    // Check arguments.
+    if ( argc < 2 )
+        throw std::runtime_error( "Incorrect number of arguments. \n \
              First argument - file name for output \n \
              \n \
              Example: \n \
              $/: ./SparseMapPerformance test_results.txt\n" );
 
-        // Get the name of the output file.
-        std::string filename = argv[1];
+    // Get the name of the output file.
+    std::string filename = argv[1];
 
-        // Open the output file on rank 0.
-        std::fstream file;
-        file.open( filename, std::fstream::out );
+    // Open the output file on rank 0.
+    std::fstream file;
+    file.open( filename, std::fstream::out );
 
-        // Run the tests.
+    // Run the tests.
 #ifdef KOKKOS_ENABLE_SERIAL
-        using SerialDevice = Kokkos::Device<Kokkos::Serial, Kokkos::HostSpace>;
-        performanceTest<SerialDevice>( file, "serial_" );
+    using SerialDevice = Kokkos::Device<Kokkos::Serial, Kokkos::HostSpace>;
+    performanceTest<SerialDevice>( file, "serial_" );
 #endif
 
 #ifdef KOKKOS_ENABLE_OPENMP
-        using OpenMPDevice = Kokkos::Device<Kokkos::OpenMP, Kokkos::HostSpace>;
-        performanceTest<OpenMPDevice>( file, "openmp_" );
+    using OpenMPDevice = Kokkos::Device<Kokkos::OpenMP, Kokkos::HostSpace>;
+    performanceTest<OpenMPDevice>( file, "openmp_" );
 #endif
 
 #ifdef KOKKOS_ENABLE_CUDA
-        using CudaDevice = Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>;
-        performanceTest<CudaDevice>( file, "cuda_" );
+    using CudaDevice = Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>;
+    performanceTest<CudaDevice>( file, "cuda_" );
 #endif
 
-        // Close the output file on rank 0.
-        file.close();
+    // Close the output file on rank 0.
+    file.close();
 
-        // Finalize
-        Kokkos::finalize();
-        return 0;
-    }
+    // Finalize
+    Kokkos::finalize();
+    return 0;
+}

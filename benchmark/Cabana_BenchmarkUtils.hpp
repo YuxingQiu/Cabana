@@ -278,6 +278,36 @@ void createParticles( Slice& x, const double x_min, const double x_max,
     std::cout << std::endl;
 }
 
+//---------------------------------------------------------------------------//
+// Generate random particles view.
+template <typename DataType>
+Kokkos::View<DataType* [3], Kokkos::HostSpace> generateRandomParticlesView(
+    int particle_num, std::array<DataType, 3> lower_corner = { 0.0, 0.0, 0.0 },
+    std::array<DataType, 3> upper_corner = { 1.0, 1.0, 1.0 } ) {
+    Kokkos::View<float* [3], Kokkos::HostSpace> poses_host(
+        Kokkos::ViewAllocateWithoutInitializing( "host_particle_poses" ),
+        particle_num );
+
+    // compute poses range
+    std::array<DataType, 3> poses_range;
+    for ( int d = 0; d < 3; ++d )
+        poses_range[d] = upper_corner[d] - lower_corner[d];
+
+    // compute generator range
+    std::minstd_rand0 generator( 3439203991 );
+    DataType generator_range = generator.max() - generator.min();
+
+    // generate random particles
+    for ( int n = 0; n < particle_num; ++n )
+        for ( int d = 0; d < 3; ++d )
+            poses_host( n, d ) =
+                ( static_cast<DataType>( ( generator() - generator.min() ) ) *
+                  poses_range[d] / generator_range ) +
+                lower_corner[d];
+
+    return poses_host;
+}
+
 } // end namespace Benchmark
 } // end namespace Cabana
 
