@@ -559,7 +559,7 @@ class SparseMap
         return _block_id_space.value_at( index );
     }
 
-/*!
+    /*!
       \brief (Device) Transfer block hash key to block ijk
       \param key Tile hash key
       \param tile_i, tile_j, tile_k Tile ID in each dimension
