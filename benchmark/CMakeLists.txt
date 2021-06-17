@@ -16,11 +16,6 @@ if(Kokkos_ENABLE_SERIAL OR Kokkos_ENABLE_CUDA OR Kokkos_ENABLE_OPENMP)
   add_executable(NeighborVerletPerformance Cabana_NeighborVerletPerformance.cpp)
   target_link_libraries(NeighborVerletPerformance cabanacore)
 
-  if(Cabana_ENABLE_CAJITA)
-    add_executable(SparseMapPerformance Cajita_SparseMapPerformance.cpp)
-    target_link_libraries(SparseMapPerformance Cajita)
-  endif()
-
   if(Cabana_ENABLE_ARBORX)
     add_executable(NeighborArborXPerformance Cabana_NeighborArborXPerformance.cpp)
     target_link_libraries(NeighborArborXPerformance cabanacore)
@@ -34,6 +29,9 @@ if(Kokkos_ENABLE_SERIAL OR Kokkos_ENABLE_CUDA OR Kokkos_ENABLE_OPENMP)
     target_link_libraries(CommPerformance cabanacore)
 
     if (Cabana_ENABLE_CAJITA)
+      add_executable(SparseMapPerformance Cajita_SparseMapPerformance.cpp)
+      target_link_libraries(SparseMapPerformance Cajita)
+      
       add_executable(SparsePartitionerPerformance Cajita_SparsePartitionerPerformance.cpp)
       target_link_libraries(SparsePartitionerPerformance Cajita)
     endif()

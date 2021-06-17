@@ -27,6 +27,7 @@
 template <class Device>
 void performanceTest( std::ostream& stream, const std::string& test_prefix )
 {
+    using exec_space = typename Device::execution_space;
     // Domain size setup
     std::array<float, 3> global_low_corner = { 0.0, 0.0, 0.0 };
     std::array<float, 3> global_high_corner = { 1.0, 1.0, 1.0 };
@@ -42,7 +43,7 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
     int num_cells_per_dim_size = num_cells_per_dim.size();
 
     // Generate a random set of particles in domain [0.0, 1.0]
-    auto poses_host = Cabana::Benchmark::generateRandomParticlesView<float>(
+    auto poses_host = Cabana::Benchmark::createParticles<float>(
         num_particles.back(), global_low_corner, global_high_corner );
     auto poses = Kokkos::create_mirror_view_and_copy(
         typename Device::memory_space(), poses_host );
@@ -72,8 +73,8 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
 
         // create sparse map
         int pre_alloc_size = num_cells_per_dim[c] * num_cells_per_dim[c];
-        auto sis = Cajita::createSparseMap<typename Device::execution_space>(
-            global_mesh, pre_alloc_size );
+        auto sis =
+            Cajita::createSparseMap<exec_space>( global_mesh, pre_alloc_size );
 
         // Create insertion timers
         std::stringstream insert_time_name;
@@ -96,15 +97,14 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
 
         for ( int p = 0; p < num_particles_size; ++p )
         {
+            auto range = Kokkos::RangePolicy<exec_space>( 0, num_particles[p] );
             for ( int t = 0; t < num_run; ++t )
             {
                 // init helper views
                 Kokkos::deep_copy( tile_ids, 0 );
                 Kokkos::deep_copy( is_tile_valid, 0 );
                 Kokkos::parallel_for(
-                    "label_valid_cells",
-                    Kokkos::RangePolicy<typename Device::execution_space>(
-                        0, num_particles[p] ),
+                    "label_valid_cells", range,
                     KOKKOS_LAMBDA( const int par_id ) {
                         int ti = static_cast<int>( poses( par_id, 0 ) /
                                                    cell_size ) >>
@@ -121,9 +121,7 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
                 // insertion
                 insert_timer.start( p );
                 Kokkos::parallel_for(
-                    "insert_cells_to_sparse_map",
-                    Kokkos::RangePolicy<typename Device::execution_space>(
-                        0, num_particles[p] ),
+                    "insert_cells_to_sparse_map", range,
                     KOKKOS_LAMBDA( const int par_id ) {
                         int ci =
                             static_cast<int>( poses( par_id, 0 ) / cell_size );
@@ -138,9 +136,7 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
                 // query
                 query_timer.start( p );
                 Kokkos::parallel_for(
-                    "query_cell_ids_from_cell_ijk",
-                    Kokkos::RangePolicy<typename Device::execution_space>(
-                        0, num_particles[p] ),
+                    "query_cell_ids_from_cell_ijk", range,
                     KOKKOS_LAMBDA( const int par_id ) {
                         int ci =
                             static_cast<int>( poses( par_id, 0 ) / cell_size );
@@ -159,8 +155,7 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
                 valid_tile_ijk_timer.start( p );
                 Kokkos::parallel_for(
                     "compute_tile_ijk_from_tile_id",
-                    Kokkos::RangePolicy<typename Device::execution_space>(
-                        0, sis.capacity() ),
+                    Kokkos::RangePolicy<exec_space>( 0, sis.capacity() ),
                     KOKKOS_LAMBDA( const int index ) {
                         if ( sis.valid_at( index ) )
                         {

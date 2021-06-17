@@ -184,8 +184,8 @@ void outputResults( std::ostream& stream, const std::string& data_point_name,
 //---------------------------------------------------------------------------//
 // Generate random particles.
 template <class Slice>
-void createParticles( Slice& x, const double x_min, const double x_max,
-                      const double min_dist )
+void createRandomNeighbors( Slice& x, const double x_min, const double x_max,
+                            const double min_dist )
 {
     auto num_particles = x.size();
     double min_dist_sqr = min_dist * min_dist;
@@ -281,9 +281,10 @@ void createParticles( Slice& x, const double x_min, const double x_max,
 //---------------------------------------------------------------------------//
 // Generate random particles view.
 template <typename DataType>
-Kokkos::View<DataType* [3], Kokkos::HostSpace> generateRandomParticlesView(
-    int particle_num, std::array<DataType, 3> lower_corner = { 0.0, 0.0, 0.0 },
-    std::array<DataType, 3> upper_corner = { 1.0, 1.0, 1.0 } ) {
+Kokkos::View<DataType* [3], Kokkos::HostSpace>
+createParticles( int particle_num,
+                 std::array<DataType, 3> lower_corner = { 0.0, 0.0, 0.0 },
+                 std::array<DataType, 3> upper_corner = { 1.0, 1.0, 1.0 } ) {
     Kokkos::View<float* [3], Kokkos::HostSpace> poses_host(
         Kokkos::ViewAllocateWithoutInitializing( "host_particle_poses" ),
         particle_num );

@@ -29,10 +29,10 @@
 
 //---------------------------------------------------------------------------//
 // Helper functions.
-struct Particle_Workload_Tag
+struct ParticleWorkloadTag
 {
 };
-struct Sparse_Map_Tag
+struct SparseMapTag
 {
 };
 
@@ -72,7 +72,7 @@ generateRandomTileSequence( int tiles_per_dim ) {
 }
 
 // generate average partitioner
-std::array<std::vector<int>, 3> compute_average_partition(
+std::array<std::vector<int>, 3> computeAveragePartition(
     const int tile_per_dim, const std::array<int, 3>& ranks_per_dim )
 {
     std::array<std::vector<int>, 3> rec_partitions;
@@ -93,8 +93,8 @@ std::array<std::vector<int>, 3> compute_average_partition(
 //---------------------------------------------------------------------------//
 // Performance test.
 template <class Device>
-void performanceTest( Particle_Workload_Tag, std::ostream& stream,
-                      MPI_Comm comm, const std::string& test_prefix )
+void performanceTest( ParticleWorkloadTag, std::ostream& stream, MPI_Comm comm,
+                      const std::string& test_prefix )
 {
     // Get comm rank;
     int comm_rank;
@@ -132,7 +132,7 @@ void performanceTest( Particle_Workload_Tag, std::ostream& stream,
                       ( num_particles.back() % comm_size < comm_rank ? 1 : 0 );
 
     // Generate a random set of particles
-    auto poses_host = Cabana::Benchmark::generateRandomParticlesView<float>(
+    auto poses_host = Cabana::Benchmark::createParticles<float>(
         max_par_num, global_low_corner, global_high_corner );
     auto poses = Kokkos::create_mirror_view_and_copy(
         typename Device::memory_space(), poses_host );
@@ -151,7 +151,7 @@ void performanceTest( Particle_Workload_Tag, std::ostream& stream,
         auto ranks_per_dim =
             partitioner.ranksPerDimension( comm, global_num_cell );
         auto ave_partition =
-            compute_average_partition( num_tiles_per_dim, ranks_per_dim );
+            computeAveragePartition( num_tiles_per_dim, ranks_per_dim );
 
         // Create insertion timers
         std::stringstream local_workload_name;
@@ -239,9 +239,10 @@ void performanceTest( Particle_Workload_Tag, std::ostream& stream,
 }
 
 template <class Device>
-void performanceTest( Sparse_Map_Tag, std::ostream& stream, MPI_Comm comm,
+void performanceTest( SparseMapTag, std::ostream& stream, MPI_Comm comm,
                       const std::string& test_prefix )
 {
+    using exec_space = typename Device::execution_space;
     // Domain size setup
     std::array<float, 3> global_low_corner = { 0.0, 0.0, 0.0 };
     std::array<float, 3> global_high_corner = { 1.0, 1.0, 1.0 };
@@ -277,8 +278,8 @@ void performanceTest( Sparse_Map_Tag, std::ostream& stream, MPI_Comm comm,
 
         // create sparse map
         int pre_alloc_size = num_cells_per_dim[c] * num_cells_per_dim[c];
-        auto sis = Cajita::createSparseMap<typename Device::execution_space>(
-            global_mesh, pre_alloc_size );
+        auto sis =
+            Cajita::createSparseMap<exec_space>( global_mesh, pre_alloc_size );
 
         // Generate a random set of occupied tiles
         auto tiles_host = generateRandomTileSequence( num_tiles_per_dim );
@@ -294,7 +295,7 @@ void performanceTest( Sparse_Map_Tag, std::ostream& stream, MPI_Comm comm,
         auto ranks_per_dim =
             partitioner.ranksPerDimension( comm, global_num_cell );
         auto ave_partition =
-            compute_average_partition( num_tiles_per_dim, ranks_per_dim );
+            computeAveragePartition( num_tiles_per_dim, ranks_per_dim );
 
         // Create insertion timers
         std::stringstream local_workload_name;
@@ -333,8 +334,7 @@ void performanceTest( Sparse_Map_Tag, std::ostream& stream, MPI_Comm comm,
             // register selected tiles to the sparseMap
             Kokkos::parallel_for(
                 "insert_tile_to_sparse_map",
-                Kokkos::RangePolicy<typename Device::execution_space>(
-                    0, num_insert ),
+                Kokkos::RangePolicy<exec_space>( 0, num_insert ),
                 KOKKOS_LAMBDA( const int id ) {
                     sis.insertTile( tiles_view( id, 0 ), tiles_view( id, 1 ),
                                     tiles_view( id, 2 ) );
@@ -448,25 +448,25 @@ int main( int argc, char* argv[] )
     // Run the tests.
 #ifdef KOKKOS_ENABLE_SERIAL
     using SerialDevice = Kokkos::Device<Kokkos::Serial, Kokkos::HostSpace>;
-    performanceTest<SerialDevice>( Particle_Workload_Tag(), file,
-                                   MPI_COMM_WORLD, "serial_parWL_" );
-    performanceTest<SerialDevice>( Sparse_Map_Tag(), file, MPI_COMM_WORLD,
+    performanceTest<SerialDevice>( ParticleWorkloadTag(), file, MPI_COMM_WORLD,
+                                   "serial_parWL_" );
+    performanceTest<SerialDevice>( SparseMapTag(), file, MPI_COMM_WORLD,
                                    "serial_smapWL_" );
 #endif
 
 #ifdef KOKKOS_ENABLE_OPENMP
     using OpenMPDevice = Kokkos::Device<Kokkos::OpenMP, Kokkos::HostSpace>;
-    performanceTest<OpenMPDevice>( Particle_Workload_Tag(), file,
-                                   MPI_COMM_WORLD, "openmp_parWL_" );
-    performanceTest<OpenMPDevice>( Sparse_Map_Tag(), file, MPI_COMM_WORLD,
+    performanceTest<OpenMPDevice>( ParticleWorkloadTag(), file, MPI_COMM_WORLD,
+                                   "openmp_parWL_" );
+    performanceTest<OpenMPDevice>( SparseMapTag(), file, MPI_COMM_WORLD,
                                    "openmp_smapWL_" );
 #endif
 
 #ifdef KOKKOS_ENABLE_CUDA
     using CudaDevice = Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>;
-    performanceTest<CudaDevice>( Particle_Workload_Tag(), file, MPI_COMM_WORLD,
+    performanceTest<CudaDevice>( ParticleWorkloadTag(), file, MPI_COMM_WORLD,
                                  "cuda_parWL_" );
-    performanceTest<CudaDevice>( Sparse_Map_Tag(), file, MPI_COMM_WORLD,
+    performanceTest<CudaDevice>( SparseMapTag(), file, MPI_COMM_WORLD,
                                  "cuda_smapWL_" );
 #endif
 
