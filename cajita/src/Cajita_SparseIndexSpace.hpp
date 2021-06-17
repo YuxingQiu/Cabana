@@ -559,6 +559,11 @@ class SparseMap
         return _block_id_space.value_at( index );
     }
 
+/*!
+      \brief (Device) Transfer block hash key to block ijk
+      \param key Tile hash key
+      \param tile_i, tile_j, tile_k Tile ID in each dimension
+    */
     KOKKOS_INLINE_FUNCTION
     void key2ijk( key_type& key, int& tile_i, int& tile_j, int& tile_k ) const
     {
