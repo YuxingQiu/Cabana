@@ -64,7 +64,8 @@ generateRandomTileSequence( int tiles_per_dim ) {
     std::generate_n( random_seq.data(), tiles_per_dim, uniqueNumber );
     for ( int d = 0; d < 3; ++d )
     {
-        std::random_shuffle( random_seq.begin(), random_seq.end() );
+        std::shuffle( random_seq.begin(), random_seq.end(),
+                      std::default_random_engine( 3439203991 ) );
         for ( int n = 0; n < tiles_per_dim; ++n )
             tiles_host( n, d ) = random_seq[n];
     }
