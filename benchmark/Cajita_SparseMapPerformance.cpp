@@ -39,7 +39,7 @@ void performanceTest( std::ostream& stream, const std::string& test_prefix )
     int num_particles_size = num_particles.size();
 
     // Declare the size (cell nums) of the domain
-    std::vector<int> num_cells_per_dim = { 16, 32, 64, 128, 256, 512, 1024 };
+    std::vector<int> num_cells_per_dim = { 32, 64, 128, 256 };
     int num_cells_per_dim_size = num_cells_per_dim.size();
 
     // Generate a random set of particles in domain [0.0, 1.0]

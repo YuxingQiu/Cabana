@@ -117,7 +117,7 @@ void performanceTest( ParticleWorkloadTag, std::ostream& stream, MPI_Comm comm,
     int num_particles_size = num_particles.size();
 
     // Declare the size (cell nums) of the domain
-    std::vector<int> num_cells_per_dim = { 16, 32, 64, 128, 256, 512, 1024 };
+    std::vector<int> num_cells_per_dim = { 32, 64, 128, 256 };
     int num_cells_per_dim_size = num_cells_per_dim.size();
 
     // Number of runs in the test loops.
@@ -173,12 +173,6 @@ void performanceTest( ParticleWorkloadTag, std::ostream& stream, MPI_Comm comm,
         Cabana::Benchmark::Timer total_optimize_timer(
             total_optimize_name.str(), num_particles_size );
 
-        std::stringstream single_optimize_name;
-        single_optimize_name << test_prefix << "single_step_optimize_"
-                             << "domain_size(cell)_" << num_cells_per_dim[c];
-        Cabana::Benchmark::Timer single_optimize_timer(
-            single_optimize_name.str(), num_particles_size );
-
         // loop over all the particle numbers
         for ( int p = 0; p < num_particles_size; ++p )
         {
@@ -215,11 +209,8 @@ void performanceTest( ParticleWorkloadTag, std::ostream& stream, MPI_Comm comm,
                 total_optimize_timer.start( p );
                 for ( int i = 0; i < max_optimize_iteration; ++i )
                 {
-                    // timer for a single optimizing step
-                    single_optimize_timer.start( p );
                     partitioner.optimizePartition( is_changed,
                                                    std::rand() % 3 );
-                    single_optimize_timer.stop( p );
                     if ( !is_changed )
                         break;
                 }
@@ -231,8 +222,6 @@ void performanceTest( ParticleWorkloadTag, std::ostream& stream, MPI_Comm comm,
                        local_workload_timer, comm );
         outputResults( stream, "insert_tile_num", num_particles,
                        prefix_sum_timer, comm );
-        outputResults( stream, "insert_tile_num", num_particles,
-                       single_optimize_timer, comm );
         outputResults( stream, "insert_tile_num", num_particles,
                        total_optimize_timer, comm );
         stream << std::flush;
@@ -251,12 +240,11 @@ void performanceTest( SparseMapTag, std::ostream& stream, MPI_Comm comm,
     constexpr int cell_bits_per_tile_dim = 2;
 
     // Declare the fraction of occupied tiles in the whole domain
-    std::vector<double> occupy_fraction = { 0.001, 0.005, 0.01, 0.05, 0.1,
-                                            0.25,  0.5,   0.75, 1.0 };
+    std::vector<double> occupy_fraction = { 0.01, 0.1, 0.5, 0.75, 1.0 };
     int occupy_fraction_size = occupy_fraction.size();
 
     // Declare the size (cell nums) of the domain
-    std::vector<int> num_cells_per_dim = { 16, 32, 64, 128, 256, 512, 1024 };
+    std::vector<int> num_cells_per_dim = { 32, 64, 128, 256 };
     int num_cells_per_dim_size = num_cells_per_dim.size();
 
     // Number of runs in the test loops.
@@ -317,12 +305,6 @@ void performanceTest( SparseMapTag, std::ostream& stream, MPI_Comm comm,
         Cabana::Benchmark::Timer total_optimize_timer(
             total_optimize_name.str(), occupy_fraction_size );
 
-        std::stringstream single_optimize_name;
-        single_optimize_name << test_prefix << "single_step_optimize_"
-                             << "domain_size(cell)_" << num_cells_per_dim[c];
-        Cabana::Benchmark::Timer single_optimize_timer(
-            single_optimize_name.str(), occupy_fraction_size );
-
         // loop over all the occupy_fractions
         for ( int frac = 0; frac < occupy_fraction_size; ++frac )
         {
@@ -363,11 +345,8 @@ void performanceTest( SparseMapTag, std::ostream& stream, MPI_Comm comm,
                 total_optimize_timer.start( frac );
                 for ( int i = 0; i < max_optimize_iteration; ++i )
                 {
-                    // timer for a single optimizing step
-                    single_optimize_timer.start( frac );
                     partitioner.optimizePartition( is_changed,
                                                    std::rand() % 3 );
-                    single_optimize_timer.stop( frac );
                     if ( !is_changed )
                         break;
                 }
@@ -380,8 +359,6 @@ void performanceTest( SparseMapTag, std::ostream& stream, MPI_Comm comm,
                        local_workload_timer, comm );
         outputResults( stream, "insert_tile_num", occupy_fraction,
                        prefix_sum_timer, comm );
-        outputResults( stream, "insert_tile_num", occupy_fraction,
-                       single_optimize_timer, comm );
         outputResults( stream, "insert_tile_num", occupy_fraction,
                        total_optimize_timer, comm );
         stream << std::flush;
